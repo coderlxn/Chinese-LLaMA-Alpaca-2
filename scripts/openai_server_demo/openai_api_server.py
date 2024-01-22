@@ -381,4 +381,4 @@ if __name__ == "__main__":
     log_config["formatters"]["default"][
         "fmt"
     ] = "%(asctime)s - %(levelname)s - %(message)s"
-    uvicorn.run(app, host="0.0.0.0", port=19327, workers=1, log_config=log_config)
+    uvicorn.run(app, host="0.0.0.0", port=6006, workers=1, log_config=log_config)
