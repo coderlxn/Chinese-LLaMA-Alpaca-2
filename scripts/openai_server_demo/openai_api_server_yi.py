@@ -6,27 +6,6 @@ import uvicorn
 from threading import Thread
 from sse_starlette.sse import EventSourceResponse
 
-
-parser = argparse.ArgumentParser()
-parser.add_argument('--base_model', default=None, type=str, required=True)
-parser.add_argument('--lora_model', default=None, type=str,help="If None, perform inference on the base model")
-parser.add_argument('--tokenizer_path',default=None,type=str)
-parser.add_argument('--gpus', default="0", type=str)
-parser.add_argument('--load_in_8bit',action='store_true', help='Load the model in 8bit mode')
-parser.add_argument('--load_in_4bit',action='store_true', help='Load the model in 4bit mode')
-parser.add_argument('--only_cpu',action='store_true',help='Only use CPU for inference')
-parser.add_argument('--alpha',type=str,default="1.0", help="The scaling factor of NTK method, can be a float or 'auto'. ")
-parser.add_argument('--use_ntk', action='store_true', help="Use dynamic-ntk to extend context window")
-parser.add_argument('--use_flash_attention_2', action='store_true', help="Use flash-attention2 to accelerate inference")
-args = parser.parse_args()
-if args.only_cpu is True:
-    args.gpus = ""
-    if args.load_in_8bit or args.load_in_4bit:
-        raise ValueError("Quantization is unavailable on CPU.")
-if args.load_in_8bit and args.load_in_4bit:
-    raise ValueError("Only one quantization method can be chosen for inference. Please check your arguments")
-os.environ["CUDA_VISIBLE_DEVICES"] = args.gpus
-
 import torch
 import torch.nn.functional as F
 from transformers import (
@@ -44,10 +23,6 @@ parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.append(parent_dir)
 from attn_and_long_ctx_patches import apply_attention_patch, apply_ntk_scaling_patch
 
-apply_attention_patch(use_memory_efficient_attention=True)
-if args.use_ntk:
-    apply_ntk_scaling_patch(args.alpha)
-
 from openai_api_protocol import (
     ChatCompletionRequest,
     ChatCompletionResponse,
@@ -61,57 +36,6 @@ from openai_api_protocol import (
     ChatCompletionResponseStreamChoice,
     DeltaMessage,
 )
-
-load_type = torch.float16
-if torch.cuda.is_available():
-    device = torch.device(0)
-else:
-    device = torch.device("cpu")
-if args.tokenizer_path is None:
-    args.tokenizer_path = args.lora_model
-    if args.lora_model is None:
-        args.tokenizer_path = args.base_model
-tokenizer = LlamaTokenizer.from_pretrained(args.tokenizer_path, legacy=True)
-if args.load_in_4bit or args.load_in_8bit:
-    quantization_config = BitsAndBytesConfig(
-        load_in_4bit=args.load_in_4bit,
-        load_in_8bit=args.load_in_8bit,
-        bnb_4bit_compute_dtype=load_type,
-    )
-base_model = AutoModelForCausalLM.from_pretrained(
-    args.base_model,
-    torch_dtype=load_type,
-    low_cpu_mem_usage=True,
-    device_map='auto' if not args.only_cpu else None,
-    load_in_4bit=args.load_in_4bit,
-    load_in_8bit=args.load_in_8bit,
-    quantization_config=quantization_config if (args.load_in_4bit or args.load_in_8bit) else None,
-    use_flash_attention_2=args.use_flash_attention_2,
-    trust_remote_code=True
-)
-
-model_vocab_size = base_model.get_input_embeddings().weight.size(0)
-tokenizer_vocab_size = len(tokenizer)
-print(f"Vocab of the base model: {model_vocab_size}")
-print(f"Vocab of the tokenizer: {tokenizer_vocab_size}")
-if model_vocab_size != tokenizer_vocab_size:
-    print("Resize model embeddings to fit tokenizer")
-    base_model.resize_token_embeddings(tokenizer_vocab_size)
-if args.lora_model is not None:
-    print("loading peft model")
-    model = PeftModel.from_pretrained(
-        base_model,
-        args.lora_model,
-        torch_dtype=load_type,
-        device_map="auto",
-    )
-else:
-    model = base_model
-
-if device == torch.device("cpu"):
-    model.float()
-
-model.eval()
 
 DEFAULT_SYSTEM_PROMPT = """You are a helpful assistant. 你是一个乐于助人的助手。"""
 
@@ -375,6 +299,55 @@ async def create_embeddings(request: EmbeddingsRequest):
 
 
 if __name__ == "__main__":
+
+    parser = ArgumentParser()
+    parser.add_argument(
+        "-c",
+        "--checkpoint-path",
+        type=str,
+        default="01-ai/Yi-6B-Chat",
+        help="Checkpoint name or path, default to %(default)r",
+    )
+    parser.add_argument(
+        "--cpu-only", action="store_true", help="Run demo with CPU only"
+    )
+    parser.add_argument(
+        "--share",
+        action="store_true",
+        default=False,
+        help="Create a publicly shareable link for the interface.",
+    )
+    parser.add_argument(
+        "--inbrowser",
+        action="store_true",
+        default=True,
+        help="Automatically launch the interface in a new tab on the default browser.",
+    )
+    parser.add_argument(
+        "--server-port", type=int, default=8111, help="Demo server port."
+    )
+    parser.add_argument(
+        "--server-name", type=str, default="127.0.0.1", help="Demo server name."
+    )
+
+    args = parser.parse_args()
+
+    tokenizer = AutoTokenizer.from_pretrained(
+        args.checkpoint_path, trust_remote_code=True
+    )
+
+    if args.cpu_only:
+        device_map = "cpu"
+    else:
+        device_map = "auto"
+
+    model = AutoModelForCausalLM.from_pretrained(
+        args.checkpoint_path,
+        device_map=device_map,
+        torch_dtype="auto",
+        trust_remote_code=True,
+    ).eval()
+
     log_config = uvicorn.config.LOGGING_CONFIG
     log_config["formatters"]["access"][
         "fmt"
