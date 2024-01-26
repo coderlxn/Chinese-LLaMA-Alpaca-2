@@ -1,4 +1,4 @@
-import argparse
+from argparse import ArgumentParser
 import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -10,7 +10,7 @@ import torch
 import torch.nn.functional as F
 from transformers import (
     AutoModelForCausalLM,
-    LlamaTokenizer,
+    AutoTokenizer,
     GenerationConfig,
     TextIteratorStreamer,
     BitsAndBytesConfig
@@ -36,6 +36,11 @@ from openai_api_protocol import (
     ChatCompletionResponseStreamChoice,
     DeltaMessage,
 )
+
+if torch.cuda.is_available():
+    device = torch.device(0)
+else:
+    device = torch.device("cpu")
 
 DEFAULT_SYSTEM_PROMPT = """You are a helpful assistant. 你是一个乐于助人的助手。"""
 
@@ -108,12 +113,15 @@ def predict(
     type(input) == str -> /v1/completions
     type(input) == list -> /v1/chat/completions
     """
-    if isinstance(input, str):
-        prompt = generate_completion_prompt(input)
-    else:
-        prompt = generate_chat_prompt(input)
-    inputs = tokenizer(prompt, return_tensors="pt")
-    input_ids = inputs["input_ids"].to(device)
+    # if isinstance(input, str):
+    #     prompt = generate_completion_prompt(input)
+    # else:
+    #     prompt = generate_chat_prompt(input)
+    # inputs = tokenizer(prompt, return_tensors="pt")
+    # input_ids = inputs["input_ids"].to(device)
+    model_inputs = tokenizer.apply_chat_template(
+        input, add_generation_prompt=True, tokenize=True, return_tensors="pt"
+    ).to(device)
     generation_config = GenerationConfig(
         temperature=temperature,
         top_p=top_p,
@@ -128,12 +136,13 @@ def predict(
     generation_config.repetition_penalty = float(repetition_penalty)
     with torch.no_grad():
         generation_output = model.generate(
-            input_ids=input_ids,
+            input_ids=model_inputs,
             generation_config=generation_config,
         )
     s = generation_output.sequences[0]
     output = tokenizer.decode(s, skip_special_tokens=True)
-    output = output.split("[/INST]")[-1].strip()
+    # print(output)
+    output = output.split(" assistant\n")[-1].strip()
     return output
 
 
