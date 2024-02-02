@@ -8,7 +8,7 @@
 
 安装依赖
 ``` shell
-pip install fastapi uvicorn shortuuid sse_starlette
+pip install fastapi uvicorn shortuuid sse_starlette scipy optimum auto-gptq
 ```
 
 启动脚本

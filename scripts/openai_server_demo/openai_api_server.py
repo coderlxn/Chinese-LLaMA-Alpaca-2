@@ -308,7 +308,7 @@ app.add_middleware(
 )
 
 
-@app.post("/v1/chat/completions")
+@app.post("/cogen/v1/chat/completions")
 async def create_chat_completion(request: ChatCompletionRequest):
     """Creates a completion for the chat message"""
     msgs = request.messages
@@ -349,7 +349,7 @@ async def create_chat_completion(request: ChatCompletionRequest):
     return ChatCompletionResponse(choices=choices)
 
 
-@app.post("/v1/completions")
+@app.post("/cogen/v1/completions")
 async def create_completion(request: CompletionRequest):
     """Creates a completion"""
     output = predict(
@@ -366,7 +366,7 @@ async def create_completion(request: CompletionRequest):
     return CompletionResponse(choices=choices)
 
 
-@app.post("/v1/embeddings")
+@app.post("/cogen/v1/embeddings")
 async def create_embeddings(request: EmbeddingsRequest):
     """Creates text embedding"""
     embedding = get_embedding(request.input)
