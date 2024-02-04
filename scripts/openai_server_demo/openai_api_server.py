@@ -1,4 +1,5 @@
 import argparse
+import logging
 import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -316,6 +317,7 @@ async def create_chat_completion(request: ChatCompletionRequest):
         msgs = [ChatMessage(role="user", content=msgs)]
     else:
         msgs = [ChatMessage(role=x["role"], content=x["content"]) for x in msgs]
+    logging.info(msgs)
     if request.stream:
         generate = stream_predict(
             input=msgs,
